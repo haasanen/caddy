@@ -1,0 +1,71 @@
+name: docker
+on:
+  schedule:
+    - cron: '30 3 * * *'
+  push:
+    paths: ['.github/workflows/docker.yml', 'docker/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+  packages: write
+jobs:
+  sync-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Sync upstream caddy release tags into this fork
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/caddyserver/caddy.git
+          git fetch --tags --force upstream
+          LATEST=$(curl -fsSL https://api.github.com/repos/caddyserver/caddy/releases/latest | jq -r .tag_name)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git merge-base --is-ancestor "$LATEST" HEAD 2>/dev/null; then
+            echo "already synced through $LATEST"
+          else
+            git merge --no-edit -m "sync: upstream $LATEST" "upstream/$LATEST" 2>/dev/null || git merge --no-edit -m "sync: upstream $LATEST" "$LATEST"
+            git push origin master
+          fi
+      - name: Check porkbun plugin releases and bump lock
+        run: |
+          set -euo pipefail
+          source docker/version.lock
+          P=$(curl -fsSL https://api.github.com/repos/caddy-dns/porkbun/releases/latest | jq -r .tag_name)
+          echo "porkbun upstream=$P locked=$PORKBUN_VERSION"
+          if [ "$P" != "$PORKBUN_VERSION" ]; then
+            printf 'CADDY_VERSION=%s\nPORKBUN_VERSION=%s\n' "$CADDY_VERSION" "$P" > docker/version.lock
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add docker/version.lock
+            git commit -m "docker: bump porkbun to $P"
+            git push
+          fi
+      - name: Build (fork tree is the caddy core source)
+        run: |
+          set -euo pipefail
+          source docker/version.lock
+          docker build -f docker/Dockerfile \
+            --build-arg CADDY_VERSION="$CADDY_VERSION" \
+            --build-arg PORKBUN_VERSION="$PORKBUN_VERSION" \
+            -t caddy-fork-local:$CADDY_VERSION .
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          source docker/version.lock
+          docker run --rm caddy-fork-local:$CADDY_VERSION caddy version | grep -F "$CADDY_VERSION"
+          docker run --rm caddy-fork-local:$CADDY_VERSION caddy list-modules | grep -F "dns.providers.porkbun"
+      - name: Push to ghcr
+        env:
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+        run: |
+          set -euo pipefail
+          source docker/version.lock
+          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u USERNAME --password-stdin
+          IMG=ghcr.io/haasanen/caddy
+          docker tag caddy-fork-local:$CADDY_VERSION $IMG:$CADDY_VERSION
+          docker tag caddy-fork-local:$CADDY_VERSION $IMG:latest
+          docker push $IMG:$CADDY_VERSION
+          docker push $IMG:latest
