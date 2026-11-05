@@ -23,11 +23,16 @@ jobs:
           LATEST=$(curl -fsSL https://api.github.com/repos/caddyserver/caddy/releases/latest | jq -r .tag_name)
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # AUTO-MERGE DISABLED 2026-11-05: fork core = upstream master @4e8de21
+          # (Oct-20 lineage incl experimental webtransport/caddyfile-import
+          # features that upstream later REVERTED). Tag-merges silently delete
+          # features the fork tree compiles; merging master breaks identically.
+          # Sync is report-only until owner decides: freeze / adopt-new-base /
+          # port-features. See wiki entities/caddy.md.
           if git merge-base --is-ancestor "$LATEST" HEAD 2>/dev/null; then
-            echo "already synced through $LATEST"
+            echo "core synced through $LATEST" >> "$GITHUB_STEP_SUMMARY"
           else
-            git merge --no-edit -m "sync: upstream $LATEST" "upstream/$LATEST" 2>/dev/null || git merge --no-edit -m "sync: upstream $LATEST" "$LATEST"
-            git push origin master
+            echo "upstream release $LATEST NOT merged into fork core (report-only sync; owner decision pending, see wiki entities/caddy.md)" >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Check porkbun plugin releases and bump lock
         run: |
