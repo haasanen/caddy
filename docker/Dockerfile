@@ -2,7 +2,7 @@
 # release tags into master), plus the porkbun DNS module pinned from upstream.
 # Publishes ghcr.io/haasanen/caddy:<caddy-version>. Versions come from
 # docker/version.lock via CI --build-arg.
-ARG CADDY_VERSION=2.11.7
+ARG CADDY_VERSION=2.11.9
 FROM docker.io/library/caddy:${CADDY_VERSION}-builder AS builder
 COPY . /src/caddy
 ARG PORKBUN_VERSION=v0.3.1

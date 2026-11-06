@@ -23,16 +23,17 @@ jobs:
           LATEST=$(curl -fsSL https://api.github.com/repos/caddyserver/caddy/releases/latest | jq -r .tag_name)
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # AUTO-MERGE DISABLED 2026-11-05: fork core = upstream master @4e8de21
-          # (Oct-20 lineage incl experimental webtransport/caddyfile-import
-          # features that upstream later REVERTED). Tag-merges silently delete
-          # features the fork tree compiles; merging master breaks identically.
-          # Sync is report-only until owner decides: freeze / adopt-new-base /
-          # port-features. See wiki entities/caddy.md.
+          # Core lineage (since 2026-11-06, owner doctrine "always update to
+          # upstream version"): master is rebased onto the 2.11.x RELEASE LINE
+          # (v2.11.9 base) — upstream master is the v3-dev lineage with NO
+          # merge-base with 2.11 tags (8ae69fae is its root; unrelated
+          # histories), so tag "merges" are impossible; upgrades = lineage
+          # swaps performed deliberately (wiki entities/caddy.md). This step
+          # only reports when a newer release is not yet in the core.
           if git merge-base --is-ancestor "$LATEST" HEAD 2>/dev/null; then
             echo "core synced through $LATEST" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "upstream release $LATEST NOT merged into fork core (report-only sync; owner decision pending, see wiki entities/caddy.md)" >> "$GITHUB_STEP_SUMMARY"
+            echo "upstream release $LATEST NOT in fork core yet (swap pending; see wiki entities/caddy.md)" >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Check porkbun plugin releases and bump lock
         run: |
@@ -41,7 +42,7 @@ jobs:
           P=$(curl -fsSL https://api.github.com/repos/caddy-dns/porkbun/releases/latest | jq -r .tag_name)
           echo "porkbun upstream=$P locked=$PORKBUN_VERSION"
           if [ "$P" != "$PORKBUN_VERSION" ]; then
-            printf 'CADDY_VERSION=%s\nPORKBUN_VERSION=%s\n' "$CADDY_VERSION" "$P" > docker/version.lock
+            printf 'CADDY_VERSION=%s\nPORKBUN_VERSION=%s\nIMAGE_SUFFIX=%s\n' "$CADDY_VERSION" "$P" "${IMAGE_SUFFIX:-}" > docker/version.lock
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add docker/version.lock
@@ -70,7 +71,8 @@ jobs:
           source docker/version.lock
           echo "${GITHUB_TOKEN}" | docker login ghcr.io -u USERNAME --password-stdin
           IMG=ghcr.io/haasanen/caddy
-          docker tag caddy-fork-local:$CADDY_VERSION $IMG:$CADDY_VERSION
+          IMAGE_TAG="${CADDY_VERSION}${IMAGE_SUFFIX}"
+          docker tag caddy-fork-local:$CADDY_VERSION $IMG:$IMAGE_TAG
           docker tag caddy-fork-local:$CADDY_VERSION $IMG:latest
-          docker push $IMG:$CADDY_VERSION
+          docker push $IMG:$IMAGE_TAG
           docker push $IMG:latest
